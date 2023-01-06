@@ -18,7 +18,7 @@
 # __author__ = "Manuel Souto Pico"
 # __copyright__ = "Copyright 2022, cApps/cApStAn"
 # __license__ = "GPL"
-# __version__ = "0.3.0"
+# __version__ = "0.3.1"
 # __maintainer__ = "Manuel Souto Pico"
 # __email__ = "manuel.souto@capstan.be"
 # __status__ = "Testing"
@@ -41,6 +41,7 @@
 # credentials must be typed for each pull or push on repos
 # running omegat on the project to generate stats is a bit slow
 # does not foresee return of a batch to the previous step
+# changes in project settings are only effective when the user closes and re-opens the project
 
 # Proposal: 
 # start with source folder pointing to first batch folder
@@ -77,7 +78,7 @@ die() { echo ; echo "$*" 1>&2 ; echo ; exit 1; }
 # constants
 THIS_SCRIPT_FPATH=$(realpath "$0")
 THIS_SCRIPT_DPATH=$(dirname "$THIS_SCRIPT_FPATH")
-cwd=$(pwd)
+CWD=$(pwd)
 
 # check that lists of steps and batches are there
 [[ -f "$THIS_SCRIPT_DPATH/steps.txt" ]] && steps_fpath="$THIS_SCRIPT_DPATH/steps.txt" || die "👉 Kaboom: steps.txt not found"
@@ -112,40 +113,39 @@ yes | rm -r $current_step_repo_dname
 git clone https://git-codecommit.eu-central-1.amazonaws.com/v1/repos/$current_step_repo_dname
 current_step_repo_dpath=$(readlink -f $current_step_repo_dname)
 
+# get stats to check completion
+echo "Generating statistics of the current step..."
+# path to the omegat 5.8.0 installation
+omt_inst_dpath="/home/souto/Repos/omegat-org/omegat/build/install/OmegaT" # <==== update
 # make a copy to run omegat on it
 current_step_omtproj_dname="${current_step_repo_dname}_omt"
 cp -r $current_step_repo_dname $current_step_omtproj_dname
-
-# path to the omegat 5.8.0 installation
-omt_inst_dpath="/home/souto/Repos/omegat-org/omegat/build/install/OmegaT" # <==== update
-
-echo "Generating statistics of the current step..."
+# run omegat on the projec
 java -jar $omt_inst_dpath/OmegaT.jar $current_step_omtproj_dname --mode=console-stats --output-file=$current_step_repo_dname/omegat/project_stats.json > /dev/null 2>&1
 # the copy of the repo is not needed anymore
 yes | rm -r $current_step_omtproj_dname
 
-steps_parentdir=$(dirname $current_step_repo_dpath) # same as pwd
-
+# get a generic translation step name without trailing number 
 current_step_repo_dname_numberless=$(echo "$current_step_repo_dname" | sed -e 's/[0-9]$//g')
 
+# check that the repo clone is still there
 [[ -d "$current_step_repo_dpath" ]] || die "👉 Kaboom: $current_step_repo_dpath not found"
 
-
-### @todo: current_step_repo_dpath (git) - copy current_step_repo_dpath (omegat)
-
-# 0 check completion
-# echo "Check whether the translation on batch '$current_batch' is complete"
+# 0 check batch completion
+echo "Checking whether the translation on batch '$current_batch' is complete..."
+# grep -c counts number of lines including the name of the batch and True (for completion): 1 if True, 0 if False
 cd $completion_check_approot && batch_completed=$(poetry run python omt_check_batch_completion.py -f $current_step_repo_dpath/omegat/project_stats.json | grep "$current_batch" | grep -c "True"); cd - > /dev/null
 
-echo "\$batch_completed: $batch_completed"
-
+# stop if the translation of the batch is not completed
 if [[ "$batch_completed" != "1" ]]
 then
-	#@todo: yes | rm -r $current_step_repo_dname
+	yes | rm -r $current_step_repo_dname
 	die "👉 Kaboom: '$current_batch' not completed at step '$current_step_repo_dname'"
 fi
 
-# 1 batch's translations become available for the next step
+# continue if the translation of the batch is completed
+
+# 1 make batch's translations available for the next step
 mkdir -p $current_step_repo_dpath/mapped/
 cp $current_step_repo_dpath/omegat/project_save.tmx $current_step_repo_dpath/mapped/$current_batch.tmx
 echo "👉 Translations of batch '$current_batch' are now ready to be mapped"
@@ -158,21 +158,13 @@ echo "👉 Let's commit changes to the '$current_step_repo_dname' repo..."
 msg="Mapped TM for'$current_batch', changed source to '$next_batch' and updated JSON stats."
 echo "👉 $msg"
 cd $current_step_repo_dpath
-# $current_step_repo_dpath/mapped/$current_batch.tmx
-# $current_step_repo_dpath/omegat.project
-# $current_step_repo_dpath/omegat/project_stats.json
+# git add $current_step_repo_dpath/mapped/$current_batch.tmx
+# git add $current_step_repo_dpath/omegat.project
+# git add $current_step_repo_dpath/omegat/project_stats.json
 git add . && git commit -m "$msg" && git push
-cd $cwd
+cd $CWD
 
-# 3 change source path in next step to point to the current batch folder
-
-#if [[ $current_step_repo_dname =~ translation[12]$ ]]
-# [[ $next_step_repo_dname = *_reconciliation ]] 
-#then 
-	# check whether both translations are completed
-#	[[ -f "$steps_parentdir/${current_step_repo_dname_numberless}1/mapped/$current_batch.tmx" ]] || hold=1
-#	[[ -f "$steps_parentdir/${current_step_repo_dname_numberless}2/mapped/$current_batch.tmx" ]] || hold=1
-#fi
+# both translations need to be checked for completion...
 
 # if current step is translation (1 or 2)
 if [[ "$current_step_repo_dname" =~ _translation[0-9]$ ]]
@@ -183,39 +175,38 @@ then
 	[[ "$current_step_repo_dname" == *_translation1 ]] && parallel_substep=$(echo "$current_step_repo_dname" | sed -e 's/\(translation\)1$/\12/')
 	[[ "$current_step_repo_dname" == *_translation2 ]] && parallel_substep=$(echo "$current_step_repo_dname" | sed -e 's/\(translation\)2$/\11/')
 
-	echo "\$parallel_substep=$parallel_substep"
+	echo "The other transation step: $parallel_substep"
 
-	# if the name of the other translation repo is known
+	# if the name of the other translation repo has been captured
 	if [[ ! -z "$parallel_substep" ]]
 	then
 		# clone the other translation repo	
-		yes | rm -r $parallel_substep; git clone https://git-codecommit.eu-central-1.amazonaws.com/v1/repos/$parallel_substep
+		yes | rm -r $parallel_substep
+		git clone https://git-codecommit.eu-central-1.amazonaws.com/v1/repos/$parallel_substep
 
 		# check if the current batch was finalized in the other translation repo
 		[[ -f "$parallel_substep/mapped/$current_batch.tmx" ]] || hold=true
 	fi
-	#@todo: rm -r $parallel_substep
+	yes | rm -r $parallel_substep
 fi
 
 
+# if there's no reason to hold the workflow... (= if the two translations are completed)
+# 3 change source path in next step to point to the current batch folder
 
-#[[ ! -z "$parallel_substep" ]] && [[ -f "$steps_parentdir/$parallel_substep/mapped/$current_batch.tmx" ]] || hold=true
-
-#if [[ "$hold" != true ]]
-# if there's no reason to hold the workflow...
-if [[ -z $hold ]]
+if [[ -z $hold ]] # hold not set
 then
 	echo "👉 Translations are ready to move forward"
 	
 	# clone next step repo
 	next_step_repo_dname=$(grep -A1 $current_step_repo_dname_numberless $steps_fpath | grep -v $current_step_repo_dname_numberless)
-	echo "\$next_step_repo_dname=$next_step_repo_dname"
-	[[ -z "$next_step_repo_dname" ]] || yes | rm -r $next_step_repo_dname; git clone https://git-codecommit.eu-central-1.amazonaws.com/v1/repos/$next_step_repo_dname
+	echo "Next step (repo name):     $next_step_repo_dname"
+	yes | rm -r $next_step_repo_dname
+	[[ -z "$next_step_repo_dname" ]] || git clone https://git-codecommit.eu-central-1.amazonaws.com/v1/repos/$next_step_repo_dname
 
 	# confirm the clone exists
 	next_step_repo_dpath=$(readlink -f $next_step_repo_dname)
-	# next_step_repo_dpath=$steps_parentdir/$next_step_repo_dname
-	echo "\$next_step_repo_dpath=$next_step_repo_dpath"
+	# echo "Next step (repo path):     $next_step_repo_dpath"
 	[[ -d "$next_step_repo_dpath" ]] || die "Kaboom=$next_step_repo_dpath not found"
 
 	# set source files to the finalized batch
@@ -229,15 +220,10 @@ then
 	# $current_step_repo_dpath/omegat.project
 	# $current_step_repo_dpath/omegat/project_stats.json
 	git add . && git commit -m "$msg" && git push
-	cd $cwd
+	cd $CWD
 
 	yes | rm -r $next_step_repo_dpath
 else
 	echo "👉 Batch '$current_batch' not completed at step '$parallel_substep'"
 	echo "👉 Reconciliation step on hold!" 
 fi
-
-
-# clean up the mess
-# delete current and next step repos and omtproj dirs... _omt
-# rm -r $current_step_repo_dname
