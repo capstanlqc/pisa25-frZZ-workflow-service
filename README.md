@@ -22,7 +22,7 @@ Step 3 when the current step is translation only happens when both `translation1
 # Dependencies
 
 * System: xmlstarlet==1.6.1 python==3.10 java==11
-* OmegaT 5.8.0 (built from source, steps here https://github.com/capstanlqc/check-batch-completion/#install-omegat-580)
+* OmegaT 5.8.0 (built from source, steps [here](https://github.com/capstanlqc/check-batch-completion/#install-omegat-580))
 * Other packages: `capstanlqc/check-batch-completion`
 
 # Steps to use this script
