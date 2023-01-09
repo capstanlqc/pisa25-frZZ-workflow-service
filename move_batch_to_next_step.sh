@@ -51,7 +51,7 @@
 # Dependencies
 # ============
 
-# system: xmlstarlet python==3.10 java==11
+# system: xmlstarlet==1.6.1 python==3.10 java==11
 # omegat 5.8.0 (built from source, steps here https://github.com/capstanlqc/check-batch-completion/#install-omegat-580)
 # other packages: capstanlqc/check-batch-completion 
 
@@ -148,14 +148,17 @@ fi
 # 1 make batch's translations available for the next step
 mkdir -p $current_step_repo_dpath/mapped/
 cp $current_step_repo_dpath/omegat/project_save.tmx $current_step_repo_dpath/mapped/$current_batch.tmx
-echo "👉 Translations of batch '$current_batch' are now ready to be mapped"
+echo "👉 Translations of batch '$current_batch' at step '$current_step_repo_dname' are now ready to be mapped"
 
 # 2 change source path in current step to point to the next batch folder
-xmlstarlet edit --inplace --update "//mapping[@local='source/']/@repository" --value "source/ft/$next_batch/" $current_step_repo_dpath/omegat.project
+
+# //mapping[@local='source/$current_batch/']/@local
+xmlstarlet edit --inplace --update "//mapping[starts-with(@local, 'source')]/@local" --value "source/$next_batch/" $current_step_repo_dpath/omegat.project
+xmlstarlet edit --inplace --update "//mapping[starts-with(@local, 'source')]/@repository" --value "source/ft/$next_batch/" $current_step_repo_dpath/omegat.project
 echo "👉 The current step '$current_step_repo_dname' is ready to start batch '$next_batch'"
 
 echo "👉 Let's commit changes to the '$current_step_repo_dname' repo..."
-msg="Mapped TM for'$current_batch', changed source to '$next_batch' and updated JSON stats."
+msg="Mapped TM for '$current_batch', changed source to '$next_batch' and updated JSON stats."
 echo "👉 $msg"
 cd $current_step_repo_dpath
 # git add $current_step_repo_dpath/mapped/$current_batch.tmx
@@ -163,6 +166,7 @@ cd $current_step_repo_dpath
 # git add $current_step_repo_dpath/omegat/project_stats.json
 git add . && git commit -m "$msg" && git push
 cd $CWD
+yes | rm -r $current_step_repo_dname
 
 # both translations need to be checked for completion...
 
@@ -210,7 +214,8 @@ then
 	[[ -d "$next_step_repo_dpath" ]] || die "Kaboom=$next_step_repo_dpath not found"
 
 	# set source files to the finalized batch
-	xmlstarlet edit --inplace --update "//mapping[@local='source/']/@repository" --value "source/ft/$current_batch/" $next_step_repo_dpath/omegat.project
+	xmlstarlet edit --inplace --update "//mapping[starts-with(@local, 'source')]/@local" --value "source/$current_batch/" $next_step_repo_dpath/omegat.project
+	xmlstarlet edit --inplace --update "//mapping[starts-with(@local, 'source')]/@repository" --value "source/ft/$current_batch/" $next_step_repo_dpath/omegat.project
 
 	echo "👉 Let's commit changes to the '$next_step_repo_dname' repo..."
 	msg="Changed source to '$current_batch' in step '$next_step_repo_dname'"
